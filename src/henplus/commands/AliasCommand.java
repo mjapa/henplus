@@ -148,12 +148,56 @@ public final class AliasCommand extends AbstractCommand {
                 _currentExecutedAliases.clear();
                 return EXEC_FAILED;
             }
-            HenPlus.msg().println("execute alias: " + toExecute + param);
+            String commandValue = commandFor(toExecute, param);
+            HenPlus.msg().println("execute alias: " + commandValue);
             _currentExecutedAliases.add(cmd);
-            _dispatcher.execute(currentSession, toExecute + param);
+            _dispatcher.execute(currentSession, commandValue);
             _currentExecutedAliases.clear();
         }
         return SUCCESS;
+    }
+    
+    private String commandFor(final String toExecute, final String param) {
+        //example:
+        //toExecute = select * from $0 where $1 = $2 limit 1
+        //param = 'mytab mycol 42'
+
+        String commandValue = toExecute;
+        //command contains $0, $1, ...
+        if ( commandValue.matches(".*(\\$(\\d+)).*") ) {
+            //replace: $0, $1, ... -> {0}, {1}, ...
+            commandValue = commandValue.replaceAll("(\\$(\\d+))+", "{$2}");
+        }
+        //commandValue == select * from ${0} where ${1} = ${2}
+
+        //command contains {0}, {1}, ....
+        if ( commandValue.matches(".*(\\{\\d+(.??)*?\\}).*") ) {
+            //for commandValue: parameterCount == 3
+            int parameterCount = (" " + commandValue + " ").split("(\\{\\d+(.??)*?\\})").length - 1;
+            String[] params = param.trim().split("[ ]");
+            List<Object> realParams = new ArrayList<Object>();
+            StringBuffer rest = new StringBuffer();
+            for (int i = 0; i < params.length; i++) {
+                Object parameter = params[ i ];
+                //convert for ChoiceFormat
+                if ( String.valueOf(parameter).trim().matches("\\d.*") ) {
+                    parameter = Long.parseLong(String.valueOf(parameter).trim());
+                }
+                if ( i < parameterCount ) {
+                    realParams.add(parameter);
+                } else {
+                    rest.append(" " + parameter);
+                }
+            }
+            //now:
+            //commandValue == select * from ${0} where ${1} = ${2}
+            //rest == limit 1
+            //realParams == { 'mytab', 'mycol', 42 }
+            commandValue = MessageFormat.format(commandValue + rest, realParams.toArray());
+        } else {
+            commandValue = commandValue + param;
+        }
+        return commandValue;
     }
 
     private void showAliases() {
